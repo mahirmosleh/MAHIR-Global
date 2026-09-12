@@ -34,28 +34,15 @@ lrt = time.time()
 
 ReS = 600
 
-# ============================================================
-#  SQUAD LOCK SYSTEM - 3 min lock per squad
-# ============================================================
-SQUAD_LOCK = {}  # { "squad_code": lock_timestamp }
-SQUAD_LOCK_LOCK = threading.Lock()
-SQUAD_LOCK_DURATION = 180  # 3 minutes
-
-# ৩টি bot per squad tracking
-SQUAD_BOT_COUNT = {}  # { "squad_code": [bot_uid_1, bot_uid_2, bot_uid_3] }
-SQUAD_BOT_COUNT_LOCK = threading.Lock()
-
-# কোন group এর জন্য কোন ৩টি bot select হয়েছে
-SQUAD_ASSIGNED_BOTS = {}  # { "squad_code": [bot1, bot2, bot3] }
-
-MAX_BOTS_PER_SQUAD = 3  # প্রতি group এ সর্বোচ্চ ৩টি bot
-WAIT_BEFORE_MSG = 5  # ৫ সেকেন্ড wait
-
 
 # ============================================================
-#  AUTO UPDATE SYSTEM
+#  AUTO UPDATE SYSTEM (NO HARDCODED FALLBACK)
 # ============================================================
 def AuToUpDaTE():
+    """
+    Play Store theke latest version niye, ggwhitehawk API theke OB ber kore.
+    Returns: (server_url, ob_version, client_version)
+    """
     try:
         data = play_store_app('com.dts.freefireth', lang="en", country='US')
         store_version = data.get("version")
@@ -79,12 +66,19 @@ def AuToUpDaTE():
         return None, None, None
 
 
+# ============================================================
+#  GLOBAL VERSION STATE
+# ============================================================
 obve = None
 _current_version = None
-version_ready = threading.Event()
+version_ready = threading.Event()  # Version ready hole set hobe
 
 
 def fetch_until_success():
+    """
+    Version na paowa porjonto retry korbe (infinite).
+    Kono hardcoded fallback nai.
+    """
     global obve, _current_version
     attempt = 0
     while True:
@@ -101,9 +95,10 @@ def fetch_until_success():
 
 
 def version_refresher():
+    """Background thread - every 30 min version update"""
     global obve, _current_version
     while True:
-        time.sleep(1800)
+        time.sleep(1800)  # 30 min
         try:
             url, ob, remote = AuToUpDaTE()
             if ob and remote:
@@ -116,6 +111,9 @@ def version_refresher():
             pass
 
 
+# ============================================================
+#  INITIAL VERSION FETCH (blocking until success)
+# ============================================================
 fetch_until_success()
 
 rf = False
@@ -132,90 +130,7 @@ restart_lock = threading.Lock()
 
 
 # ============================================================
-#  SQUAD LOCK FUNCTIONS
-# ============================================================
-def is_squad_locked(squad_code):
-    """Check kore ei squad 3 min lock e ache kina"""
-    with SQUAD_LOCK_LOCK:
-        if squad_code in SQUAD_LOCK:
-            lock_time = SQUAD_LOCK[squad_code]
-            elapsed = time.time() - lock_time
-            if elapsed < SQUAD_LOCK_DURATION:
-                return True, SQUAD_LOCK_DURATION - elapsed
-            else:
-                # Lock expired - remove
-                del SQUAD_LOCK[squad_code]
-                # Also clear bot count
-                with SQUAD_BOT_COUNT_LOCK:
-                    if squad_code in SQUAD_BOT_COUNT:
-                        del SQUAD_BOT_COUNT[squad_code]
-                if squad_code in SQUAD_ASSIGNED_BOTS:
-                    del SQUAD_ASSIGNED_BOTS[squad_code]
-                return False, 0
-        return False, 0
-
-
-def lock_squad(squad_code):
-    """Squad ke 3 min lock kore"""
-    with SQUAD_LOCK_LOCK:
-        SQUAD_LOCK[squad_code] = time.time()
-
-
-def try_join_squad(squad_code, bot_uid):
-    """
-    Try kore ei bot ei squad e join korte parbe kina.
-    Returns: (allowed, is_first, assigned_bots)
-    - allowed: True hole join korte parbe
-    - is_first: True hole ei bot prothom (3 ta select korbe)
-    """
-    with SQUAD_BOT_COUNT_LOCK:
-        # Check lock
-        locked, remaining = is_squad_locked(squad_code)
-        if locked:
-            return False, False, []
-        
-        # Check if already 3 bots assigned
-        if squad_code not in SQUAD_BOT_COUNT:
-            SQUAD_BOT_COUNT[squad_code] = []
-        
-        # Already assigned bots
-        assigned = SQUAD_BOT_COUNT[squad_code]
-        
-        # Ei bot already assigned?
-        if bot_uid in assigned:
-            return False, False, []
-        
-        # 3 bots er beshi na
-        if len(assigned) >= MAX_BOTS_PER_SQUAD:
-            return False, False, []
-        
-        # Ei bot ke add koro
-        SQUAD_BOT_COUNT[squad_code].append(bot_uid)
-        
-        # Jodi prothom bot hoy, lock kore dao
-        is_first = (len(assigned) == 0)
-        if is_first:
-            lock_squad(squad_code)
-            console.print(f"[bold yellow]🔒 Squad {squad_code[:20]}... LOCKED for 3 min[/bold yellow]")
-        
-        return True, is_first, list(SQUAD_BOT_COUNT[squad_code])
-
-
-def get_squad_status(squad_code):
-    """Squad er current status"""
-    with SQUAD_BOT_COUNT_LOCK:
-        bots = SQUAD_BOT_COUNT.get(squad_code, [])
-        locked, remaining = is_squad_locked(squad_code)
-        return {
-            "locked": locked,
-            "remaining": remaining,
-            "bots_sent": len(bots),
-            "bot_list": list(bots)
-        }
-
-
-# ============================================================
-#  ghost_packet
+#  ghost_packet (sync version)
 # ============================================================
 def ghost_packet(player_id, nm, secret_code, key, iv):
     fields = {
@@ -334,12 +249,18 @@ def ea(plain_text):
 
 
 def ERML(open_id, access_token, version=None):
+    """Version shudhu global _current_version theke asbe. Hardcoded fallback nai."""
     if version is None:
         version = _current_version
+    
     if not version:
+        # Version na thakle wait koro
         version_ready.wait(timeout=60)
         version = _current_version
+    
     if not version:
+        # Ekhono na pele skip koro
+        print("[!] Version not ready, skipping ERML")
         return None
     
     timestamp = str(datetime.now())[:-7]
@@ -416,7 +337,8 @@ def pr(parsed_results):
 def gar(input_text):
     try:
         parsed_results = Parser().parse(input_text)
-        parsed_results_dict = pr(parsed_results)
+        parsed_results_objects = parsed_results
+        parsed_results_dict = pr(parsed_results_objects)
         json_data = json.dumps(parsed_results_dict)
         return json_data
     except Exception as e:
@@ -469,11 +391,13 @@ def GRA(uid, password, mt=2):
 
 
 def ML(payload):
+    """ReleaseVersion shudhu global obve theke. Hardcoded fallback nai."""
     rel = obve
     if not rel:
         version_ready.wait(timeout=60)
         rel = obve
     if not rel:
+        print("[!] OB version not ready, skipping ML")
         return None
     
     try:
@@ -527,11 +451,13 @@ class FC:
         return combined_timestamp, key, iv
     
     def glp(self, jwt_token, encrypted_payload):
+        """ReleaseVersion shudhu global obve theke. Hardcoded fallback nai."""
         rel = obve
         if not rel:
             version_ready.wait(timeout=60)
             rel = obve
         if not rel:
+            print("[!] OB version not ready, skipping glp")
             return None, None, None, None
         
         url = f'https://clientbp.ggpolarbear.com/GetLoginData'
@@ -725,19 +651,6 @@ class FC:
                                                     target_uid, target_name, target_region, squad_code, code = None, "MAHIR", self.region, None, None
                                                 
                                                 if target_uid and squad_code and code:
-                                                    # ============ TRY JOIN SQUAD ============
-                                                    allowed, is_first, assigned_bots = try_join_squad(squad_code, self.bot_uid)
-                                                    
-                                                    if not allowed:
-                                                        # Skip - squad locked or 3 bots already sent
-                                                        locked, remaining = is_squad_locked(squad_code)
-                                                        if locked:
-                                                            with lock:
-                                                                console.print(f"[yellow]⏭️ {self.bot_uid} - Squad {squad_code[:15]}... locked ({remaining:.0f}s left)[/yellow]")
-                                                        got_target = True
-                                                        self.target_found = False
-                                                        break
-                                                    
                                                     self.target_found = True
                                                     got_target = True
                                                     
@@ -747,10 +660,9 @@ class FC:
                                                         console.print(f"[bold cyan]👤 NAME     :[/bold cyan] {target_name}")
                                                         console.print(f"[bold white]🆔 UID      :[/bold white] {target_uid}")
                                                         console.print(f"[bold magenta]🌐 SERVER   :[/bold magenta] {target_region}")
-                                                        console.print(f"[bold blue]📊 SQUAD    :[/bold blue] {len(assigned_bots)}/3 bots sent")
                                                         console.print(f"[bold green]=====================================[/bold green]")
                                                     
-                                                    # ============ STEP 1: SEND MESSAGE (5 sec wait er pore) ============
+                                                    # ============ STEP 1: FIRST SEND MESSAGE ============
                                                     try:
                                                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                                                         sock.settimeout(5.0)
@@ -777,14 +689,12 @@ class FC:
                                                         with lock:
                                                             console.print(f"[{self.bot_uid}] Msg ErRoR")
                                                     
-                                                    # ============ STEP 2: WAIT 5 SEC ============
-                                                    time.sleep(WAIT_BEFORE_MSG)
-                                                    
-                                                    # ============ STEP 3: EXIT ============
+                                                    # ============ STEP 2: THEN EXIT ============
+                                                    time.sleep(50)
                                                     sock2.send(ExiT(key, iv))
-                                                    time.sleep(1)
+                                                    time.sleep(0.01)
                                                     
-                                                    # ============ STEP 4: SEND GHOST ============
+                                                    # ============ STEP 3: THEN SEND GHOST ============
                                                     name = "[C][B][FF0000]TIKTOK : [C][B][FFFFFF]MAHIR__222"
                                                     ghost_data = Send_GhosTs(target_uid, name, squad_code, key, iv)
                                                     sock2.send(ghost_data)
@@ -907,13 +817,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 </tr>
                 """
             
-            # Squad lock info
-            with SQUAD_LOCK_LOCK:
-                total_locked = len(SQUAD_LOCK)
-            with SQUAD_BOT_COUNT_LOCK:
-                total_assigned = len(SQUAD_BOT_COUNT)
-                total_bots_sent = sum(len(bots) for bots in SQUAD_BOT_COUNT.values())
-            
             cur_ver = _current_version or "loading..."
             cur_rel = obve or "loading..."
             
@@ -950,7 +853,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     .header p {{ margin-top: 10px; font-size: 1.1em; opacity: 0.9; }}
                     .stats {{
                         display: grid;
-                        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
                         gap: 20px;
                         margin-bottom: 30px;
                     }}
@@ -968,13 +871,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         box-shadow: 0 0 30px rgba(255, 102, 0, 0.6);
                     }}
                     .stat-card h2 {{
-                        font-size: 2.5em;
+                        font-size: 3em;
                         color: #00ff00;
                         text-shadow: 0 0 20px #00ff00;
                     }}
                     .stat-card p {{
                         margin-top: 10px;
-                        font-size: 1.1em;
+                        font-size: 1.2em;
                         color: #ffcc00;
                     }}
                     .section {{
@@ -1045,6 +948,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         background: linear-gradient(90deg, #00cc00, #00ff00);
                         color: #000;
                     }}
+                    .btn-blue {{
+                        background: linear-gradient(90deg, #0066ff, #00ccff);
+                        color: #fff;
+                    }}
                     .footer {{
                         text-align: center;
                         padding: 20px;
@@ -1063,14 +970,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         color: #ffcc00;
                         font-size: 1.2em;
                     }}
-                    .lock-info {{
-                        color: #ffb347;
-                        font-size: 0.9em;
-                        margin-top: 10px;
-                    }}
                 </style>
                 <script>
-                    setTimeout(function(){{ location.reload(); }}, 5000);
+                    setTimeout(function(){{ location.reload(); }}, 10000);
                 </script>
             </head>
             <body>
@@ -1094,15 +996,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             <p>⚙️ ACTIVE THREADS</p>
                         </div>
                         <div class="stat-card">
-                            <h2>{total_locked}</h2>
-                            <p>🔒 LOCKED SQUADS</p>
-                        </div>
-                        <div class="stat-card">
-                            <h2>{total_bots_sent}</h2>
-                            <p>📤 BOTS SENT</p>
-                        </div>
-                        <div class="stat-card">
-                            <h2 style="font-size: 1.2em; color: #00ccff;">{cur_ver}</h2>
+                            <h2 style="font-size: 1.4em; color: #00ccff;">{cur_ver}</h2>
                             <p>📦 VERSION ({cur_rel})</p>
                         </div>
                     </div>
@@ -1123,12 +1017,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                 {accounts_html if accounts_html else '<tr><td colspan="5" class="empty-warning">⚠️ No active accounts yet. Add accounts to BD.txt below.</td></tr>'}
                             </tbody>
                         </table>
-                        <div class="refresh-note">🔄 Auto-refresh every 5 seconds</div>
-                        <div class="lock-info">
-                            🔒 Squad Lock Duration: 3 minutes | 
-                            📊 Total Locked: {total_locked} | 
-                            📤 Total Sent: {total_bots_sent}
-                        </div>
+                        <div class="refresh-note">🔄 Auto-refresh every 10 seconds</div>
                     </div>
                     
                     <div class="section">
@@ -1154,18 +1043,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            
-            with SQUAD_LOCK_LOCK:
-                total_locked = len(SQUAD_LOCK)
-            with SQUAD_BOT_COUNT_LOCK:
-                total_bots_sent = sum(len(bots) for bots in SQUAD_BOT_COUNT.values())
-            
             stats = {
                 'online': online_count,
                 'total': total_accounts,
                 'threads': ab,
-                'locked_squads': total_locked,
-                'bots_sent': total_bots_sent,
                 'version': _current_version or "loading...",
                 'release': obve or "loading...",
                 'accounts': active_accounts[-100:]
@@ -1211,6 +1092,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def restart_all_accounts():
+    """নতুন অ্যাকাউন্ট লোড করে সব থ্রেড রিস্টার্ট করে"""
     global rf, online_count, active_accounts, total_accounts, ab
     
     with restart_lock:
@@ -1223,14 +1105,6 @@ def restart_all_accounts():
             online_count = 0
             active_accounts = []
             ab = 0
-        
-        # Clear all locks
-        with SQUAD_LOCK_LOCK:
-            SQUAD_LOCK.clear()
-        with SQUAD_BOT_COUNT_LOCK:
-            SQUAD_BOT_COUNT.clear()
-        with SQUAD_ASSIGNED_BOTS_LOCK if 'SQUAD_ASSIGNED_BOTS_LOCK' in dir() else threading.Lock():
-            SQUAD_ASSIGNED_BOTS.clear()
         
         all_accounts = laa()
         total_accounts = len(all_accounts)
@@ -1259,9 +1133,10 @@ def ss():
     except:
         pass
     
+    # Version info display
     console.print(f"[bold green]📦 Version: {_current_version} ({obve})[/bold green]")
-    console.print(f"[bold yellow]⚙️ Settings: {MAX_BOTS_PER_SQUAD} bots/squad | {SQUAD_LOCK_DURATION}s lock | {WAIT_BEFORE_MSG}s wait[/bold yellow]")
     
+    # HTML সার্ভার আগে চালু (accounts না থাকলেও)
     if not html_server_running:
         try:
             server = HTTPServer(('0.0.0.0', 8080), DashboardHandler)
@@ -1272,6 +1147,7 @@ def ss():
         except Exception as e:
             console.print(f"[bold red]❌ Dashboard failed: {e}[/bold red]")
     
+    # ===== MAIN LOOP - কখনো বন্ধ হবে না =====
     first_run = True
     
     while True:
@@ -1312,6 +1188,7 @@ def ss():
 
 
 def restart_program():
+    """১০ মিনিট পর পর auto restart"""
     global ReS
     while True:
         time.sleep(ReS)
@@ -1325,9 +1202,11 @@ def restart_program():
 # ============ MAIN ============
 if __name__ == "__main__":
     try:
+        # Version refresher thread
         version_thread = threading.Thread(target=version_refresher, daemon=True)
         version_thread.start()
         
+        # Auto restart thread
         restart_thread = threading.Thread(target=restart_program, daemon=True)
         restart_thread.start()
         
