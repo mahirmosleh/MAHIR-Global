@@ -690,7 +690,7 @@ class FC:
                                                             console.print(f"[{self.bot_uid}] Msg ErRoR")
                                                     
                                                     # ============ STEP 2: THEN EXIT ============
-                                                    time.sleep(50)
+                                                    time.sleep(10)
                                                     sock2.send(ExiT(key, iv))
                                                     time.sleep(0.01)
                                                     
