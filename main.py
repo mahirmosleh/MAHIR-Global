@@ -34,15 +34,18 @@ lrt = time.time()
 
 ReS = 600
 
+# ============================================================
+#  TRACKING SYSTEM - কোন BOT কোন GROUP এ গেছে
+# ============================================================
+# Structure: { "squad_code_1": {"bot_uid_1": timestamp, "bot_uid_2": timestamp}, ... }
+SENT_BOTS = {}  
+SENT_BOTS_LOCK = threading.Lock()
+BOT_COOLDOWN = 300  # 5 minutes 
 
 # ============================================================
 #  AUTO UPDATE SYSTEM (NO HARDCODED FALLBACK)
 # ============================================================
 def AuToUpDaTE():
-    """
-    Play Store theke latest version niye, ggwhitehawk API theke OB ber kore.
-    Returns: (server_url, ob_version, client_version)
-    """
     try:
         data = play_store_app('com.dts.freefireth', lang="en", country='US')
         store_version = data.get("version")
@@ -71,14 +74,11 @@ def AuToUpDaTE():
 # ============================================================
 obve = None
 _current_version = None
-version_ready = threading.Event()  # Version ready hole set hobe
+version_ready = threading.Event()
 
 
 def fetch_until_success():
-    """
-    Version na paowa porjonto retry korbe (infinite).
-    Kono hardcoded fallback nai.
-    """
+    """Version na paowa porjonto retry (no hardcoded fallback)"""
     global obve, _current_version
     attempt = 0
     while True:
@@ -98,7 +98,7 @@ def version_refresher():
     """Background thread - every 30 min version update"""
     global obve, _current_version
     while True:
-        time.sleep(1800)  # 30 min
+        time.sleep(1800)
         try:
             url, ob, remote = AuToUpDaTE()
             if ob and remote:
@@ -111,9 +111,6 @@ def version_refresher():
             pass
 
 
-# ============================================================
-#  INITIAL VERSION FETCH (blocking until success)
-# ============================================================
 fetch_until_success()
 
 rf = False
@@ -127,6 +124,42 @@ total_accounts = 0
 active_accounts = []
 html_server_running = False
 restart_lock = threading.Lock()
+
+
+# ============================================================
+#  TRACKING FUNCTIONS
+# ============================================================
+def has_bot_been_sent(squad_code, bot_uid):
+    """Check kore ei bot ei squad e age geche kina"""
+    with SENT_BOTS_LOCK:
+        if squad_code in SENT_BOTS:
+            if bot_uid in SENT_BOTS[squad_code]:
+                last_time = SENT_BOTS[squad_code][bot_uid]
+                if time.time() - last_time < BOT_COOLDOWN:
+                    return True  # Cooldown e ache
+                else:
+                    # Cooldown shesh, remove kore dao
+                    del SENT_BOTS[squad_code][bot_uid]
+                    if not SENT_BOTS[squad_code]:
+                        del SENT_BOTS[squad_code]
+        return False
+
+
+def mark_bot_sent(squad_code, bot_uid):
+    """Mark kore ei bot ei squad e geche"""
+    with SENT_BOTS_LOCK:
+        if squad_code not in SENT_BOTS:
+            SENT_BOTS[squad_code] = {}
+        SENT_BOTS[squad_code][bot_uid] = time.time()
+
+
+def get_available_bots_for_squad(squad_code, all_bots):
+    """Ei squad er jonno kon bots available"""
+    available = []
+    for bot in all_bots:
+        if not has_bot_been_sent(squad_code, bot):
+            available.append(bot)
+    return available
 
 
 # ============================================================
@@ -249,17 +282,14 @@ def ea(plain_text):
 
 
 def ERML(open_id, access_token, version=None):
-    """Version shudhu global _current_version theke asbe. Hardcoded fallback nai."""
     if version is None:
         version = _current_version
     
     if not version:
-        # Version na thakle wait koro
         version_ready.wait(timeout=60)
         version = _current_version
     
     if not version:
-        # Ekhono na pele skip koro
         print("[!] Version not ready, skipping ERML")
         return None
     
@@ -337,8 +367,7 @@ def pr(parsed_results):
 def gar(input_text):
     try:
         parsed_results = Parser().parse(input_text)
-        parsed_results_objects = parsed_results
-        parsed_results_dict = pr(parsed_results_objects)
+        parsed_results_dict = pr(parsed_results)
         json_data = json.dumps(parsed_results_dict)
         return json_data
     except Exception as e:
@@ -391,7 +420,6 @@ def GRA(uid, password, mt=2):
 
 
 def ML(payload):
-    """ReleaseVersion shudhu global obve theke. Hardcoded fallback nai."""
     rel = obve
     if not rel:
         version_ready.wait(timeout=60)
@@ -424,6 +452,9 @@ def ML(payload):
         return None
 
 
+# ============================================================
+#  FC CLASS - Main Bot Logic
+# ============================================================
 class FC:
     def __init__(self, uid, password, region):
         self.uid = uid
@@ -451,7 +482,6 @@ class FC:
         return combined_timestamp, key, iv
     
     def glp(self, jwt_token, encrypted_payload):
-        """ReleaseVersion shudhu global obve theke. Hardcoded fallback nai."""
         rel = obve
         if not rel:
             version_ready.wait(timeout=60)
@@ -651,6 +681,15 @@ class FC:
                                                     target_uid, target_name, target_region, squad_code, code = None, "MAHIR", self.region, None, None
                                                 
                                                 if target_uid and squad_code and code:
+                                                    # ============ CHECK DUPLICATE JOIN ============
+                                                    # Ei bot ki age ei squad e geche?
+                                                    if has_bot_been_sent(squad_code, self.bot_uid):
+                                                        with lock:
+                                                            console.print(f"[yellow]⏭️ {self.bot_uid} already sent to squad {squad_code[:20]}... skipping[/yellow]")
+                                                        got_target = True
+                                                        self.target_found = False
+                                                        break
+                                                    
                                                     self.target_found = True
                                                     got_target = True
                                                     
@@ -661,6 +700,9 @@ class FC:
                                                         console.print(f"[bold white]🆔 UID      :[/bold white] {target_uid}")
                                                         console.print(f"[bold magenta]🌐 SERVER   :[/bold magenta] {target_region}")
                                                         console.print(f"[bold green]=====================================[/bold green]")
+                                                    
+                                                    # ============ MARK AS SENT ============
+                                                    mark_bot_sent(squad_code, self.bot_uid)
                                                     
                                                     # ============ STEP 1: FIRST SEND MESSAGE ============
                                                     try:
@@ -690,9 +732,8 @@ class FC:
                                                             console.print(f"[{self.bot_uid}] Msg ErRoR")
                                                     
                                                     # ============ STEP 2: THEN EXIT ============
-                                                    time.sleep(10)
                                                     sock2.send(ExiT(key, iv))
-                                                    time.sleep(0.01)
+                                                    time.sleep(1)
                                                     
                                                     # ============ STEP 3: THEN SEND GHOST ============
                                                     name = "[C][B][FF0000]TIKTOK : [C][B][FFFFFF]MAHIR__222"
@@ -816,6 +857,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     <td style="color: #00ff00;">● ONLINE</td>
                 </tr>
                 """
+            
+            # Sent bots info
+            sent_info = ""
+            with SENT_BOTS_LOCK:
+                total_sent = sum(len(bots) for bots in SENT_BOTS.values())
+                sent_info = f"<p>📤 Total sent records: <strong>{total_sent}</strong> across <strong>{len(SENT_BOTS)}</strong> squads</p>"
             
             cur_ver = _current_version or "loading..."
             cur_rel = obve or "loading..."
@@ -1021,6 +1068,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     </div>
                     
                     <div class="section">
+                        <h2>📤 Sent Bots Tracking</h2>
+                        {sent_info}
+                    </div>
+                    
+                    <div class="section">
                         <h2>📝 Edit BD.txt</h2>
                         <form method="POST" action="/update">
                             <textarea name="bd_content" placeholder="uid:password&#10;uid:password&#10;...">{bd_content}</textarea>
@@ -1092,7 +1144,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def restart_all_accounts():
-    """নতুন অ্যাকাউন্ট লোড করে সব থ্রেড রিস্টার্ট করে"""
     global rf, online_count, active_accounts, total_accounts, ab
     
     with restart_lock:
@@ -1105,6 +1156,10 @@ def restart_all_accounts():
             online_count = 0
             active_accounts = []
             ab = 0
+        
+        # Clear sent bots tracking
+        with SENT_BOTS_LOCK:
+            SENT_BOTS.clear()
         
         all_accounts = laa()
         total_accounts = len(all_accounts)
@@ -1133,10 +1188,8 @@ def ss():
     except:
         pass
     
-    # Version info display
     console.print(f"[bold green]📦 Version: {_current_version} ({obve})[/bold green]")
     
-    # HTML সার্ভার আগে চালু (accounts না থাকলেও)
     if not html_server_running:
         try:
             server = HTTPServer(('0.0.0.0', 8080), DashboardHandler)
@@ -1147,7 +1200,6 @@ def ss():
         except Exception as e:
             console.print(f"[bold red]❌ Dashboard failed: {e}[/bold red]")
     
-    # ===== MAIN LOOP - কখনো বন্ধ হবে না =====
     first_run = True
     
     while True:
@@ -1188,7 +1240,6 @@ def ss():
 
 
 def restart_program():
-    """১০ মিনিট পর পর auto restart"""
     global ReS
     while True:
         time.sleep(ReS)
@@ -1202,11 +1253,9 @@ def restart_program():
 # ============ MAIN ============
 if __name__ == "__main__":
     try:
-        # Version refresher thread
         version_thread = threading.Thread(target=version_refresher, daemon=True)
         version_thread.start()
         
-        # Auto restart thread
         restart_thread = threading.Thread(target=restart_program, daemon=True)
         restart_thread.start()
         
