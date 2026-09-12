@@ -662,7 +662,7 @@ class FC:
                                                         console.print(f"[bold magenta]🌐 SERVER   :[/bold magenta] {target_region}")
                                                         console.print(f"[bold green]=====================================[/bold green]")
                                                     
-                                                    # ============ STEP 1: JOIN + MESSAGE ============
+                                                    # ============ STEP 1: FIRST SEND MESSAGE ============
                                                     try:
                                                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                                                         sock.settimeout(5.0)
@@ -670,11 +670,6 @@ class FC:
                                                         sock.send(bytes.fromhex(auth))
                                                         time.sleep(0.05)
                                                         
-                                                        # Join
-                                                        sock.send(Join_Sq(key, iv))
-                                                        time.sleep(0.02)
-                                                        
-                                                        # Private chat
                                                         sock.send(yasser_Chat(target_uid, code, key, iv))
                                                         time.sleep(0.05)
                                                         
@@ -694,11 +689,10 @@ class FC:
                                                         with lock:
                                                             console.print(f"[{self.bot_uid}] Msg ErRoR")
                                                     
-                                                    # ============ STEP 2: EXIT + WAIT 5 SECONDS ============
+                                                    # ============ STEP 2: THEN EXIT ============
+                                                    time.sleep(10)
                                                     sock2.send(ExiT(key, iv))
-                                                    with lock:
-                                                        console.print(f" [{self.bot_uid}] |  [{self.region}] | Exited - Waiting 5s...")
-                                                    time.sleep(5)
+                                                    time.sleep(0.01)
                                                     
                                                     # ============ STEP 3: THEN SEND GHOST ============
                                                     name = "[C][B][FF0000]TIKTOK : [C][B][FFFFFF]MAHIR__222"
