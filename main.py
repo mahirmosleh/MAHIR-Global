@@ -698,7 +698,7 @@ class FC:
                                                     sock2.send(ExiT(key, iv))
                                                     with lock:
                                                         console.print(f" [{self.bot_uid}] |  [{self.region}] | Exited - Waiting 5s...")
-                                                    time.sleep(9)
+                                                    time.sleep(5)
                                                     
                                                     # ============ STEP 3: THEN SEND GHOST ============
                                                     name = "[C][B][FF0000]TIKTOK : [C][B][FFFFFF]MAHIR__222"
