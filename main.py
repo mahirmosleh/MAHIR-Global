@@ -8,7 +8,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from rich.console import Console
 from rich.panel import Panel
 from rich.align import Align
-from cfonts import render , say
+from cfonts import render, say
 import urllib3
 import hashlib
 import hmac
@@ -46,21 +46,21 @@ def AuToUpDaTE():
     try:
         data = play_store_app('com.dts.freefireth', lang="en", country='US')
         store_version = data.get("version")
-        
+
         if not store_version:
             print("[!] Play Store version not found")
             return None, None, None
-        
+
         api_url = f"https://version.ggwhitehawk.com/live/ver.php?version={store_version}&lang=fr&device=android&channel=android"
         r = requests.get(api_url, timeout=15)
         json_data = r.json()
-        
+
         server_url = json_data.get('server_url')
         ob_version = json_data.get('latest_release_version')
         remote_version = json_data.get('remote_version')
-        
+
         return server_url, ob_version, remote_version
-    
+
     except Exception as e:
         print(f"[!] Auto-update failed: {e}")
         return None, None, None
@@ -71,14 +71,10 @@ def AuToUpDaTE():
 # ============================================================
 obve = None
 _current_version = None
-version_ready = threading.Event()  # Version ready hole set hobe
+version_ready = threading.Event()
 
 
 def fetch_until_success():
-    """
-    Version na paowa porjonto retry korbe (infinite).
-    Kono hardcoded fallback nai.
-    """
     global obve, _current_version
     attempt = 0
     while True:
@@ -95,10 +91,9 @@ def fetch_until_success():
 
 
 def version_refresher():
-    """Background thread - every 30 min version update"""
     global obve, _current_version
     while True:
-        time.sleep(1800)  # 30 min
+        time.sleep(1800)
         try:
             url, ob, remote = AuToUpDaTE()
             if ob and remote:
@@ -112,7 +107,7 @@ def version_refresher():
 
 
 # ============================================================
-#  INITIAL VERSION FETCH (blocking until success)
+#  INITIAL VERSION FETCH
 # ============================================================
 fetch_until_success()
 
@@ -153,7 +148,7 @@ def ghost_packet(player_id, nm, secret_code, key, iv):
             3: secret_code,
         },
     }
-    
+
     try:
         proto_data = CrEaTe_ProTo(fields)
         if hasattr(proto_data, '__await__'):
@@ -162,7 +157,7 @@ def ghost_packet(player_id, nm, secret_code, key, iv):
             loop.close()
     except Exception:
         proto_data = _build_ghost_proto(fields)
-    
+
     try:
         packet = GeneRaTePk(proto_data.hex(), "0515", key, iv)
         if hasattr(packet, '__await__'):
@@ -186,7 +181,7 @@ def _build_ghost_proto(fields):
             if not n:
                 break
         return bytes(out)
-    
+
     def encode_field(k, v):
         if isinstance(v, int):
             return encode_varint((k << 3) | 0) + encode_varint(v)
@@ -198,7 +193,7 @@ def _build_ghost_proto(fields):
             inner = b"".join(encode_field(kk, vv) for kk, vv in v.items())
             return encode_varint((k << 3) | 2) + encode_varint(len(inner)) + inner
         return b""
-    
+
     return b"".join(encode_field(k, v) for k, v in fields.items())
 
 
@@ -210,6 +205,7 @@ def _build_ghost_packet(proto_bytes, key, iv):
         return b""
     except Exception:
         return b""
+
 
 def ev(num):
     if num < 0:
@@ -225,6 +221,7 @@ def ev(num):
             break
     return bytes(out)
 
+
 def cf(num, val):
     if isinstance(val, int):
         return ev((num << 3) | 0) + ev(val)
@@ -236,8 +233,10 @@ def cf(num, val):
         return ev((num << 3) | 2) + ev(len(nested)) + nested
     return b""
 
+
 def cp(fields):
     return b"".join(cf(k, v) for k, v in fields.items())
+
 
 def ea(plain_text):
     plain_text = bytes.fromhex(plain_text)
@@ -249,23 +248,20 @@ def ea(plain_text):
 
 
 def ERML(open_id, access_token, version=None):
-    """Version shudhu global _current_version theke asbe. Hardcoded fallback nai."""
     if version is None:
         version = _current_version
-    
+
     if not version:
-        # Version na thakle wait koro
         version_ready.wait(timeout=60)
         version = _current_version
-    
+
     if not version:
-        # Ekhono na pele skip koro
         print("[!] Version not ready, skipping ERML")
         return None
-    
+
     timestamp = str(datetime.now())[:-7]
     unique_id = str(uuid.uuid4())
-    
+
     payload_fields = {
         3: timestamp,
         4: 'free fire',
@@ -334,6 +330,7 @@ def pr(parsed_results):
         result_dict[result.field] = field_data
     return result_dict
 
+
 def gar(input_text):
     try:
         parsed_results = Parser().parse(input_text)
@@ -343,6 +340,7 @@ def gar(input_text):
         return json_data
     except Exception as e:
         return None
+
 
 def GRA(uid, password, mt=2):
     url = "https://100067.connect.garena.com/api/v2/oauth/guest/token:grant"
@@ -391,7 +389,6 @@ def GRA(uid, password, mt=2):
 
 
 def ML(payload):
-    """ReleaseVersion shudhu global obve theke. Hardcoded fallback nai."""
     rel = obve
     if not rel:
         version_ready.wait(timeout=60)
@@ -399,7 +396,7 @@ def ML(payload):
     if not rel:
         print("[!] OB version not ready, skipping ML")
         return None
-    
+
     try:
         headers = {
             'X-Unity-Version': '2022.3.47f1',
@@ -436,7 +433,7 @@ class FC:
         self.login_success = False
         self.ghost_sent = False
         self.message_sent = False
-    
+
     def gki(self, serialized_data):
         my_message = keys.MyMessage()
         my_message.ParseFromString(serialized_data)
@@ -449,9 +446,8 @@ class FC:
         timestamp_nanos = timestamp_obj.nanos
         combined_timestamp = timestamp_seconds * 1_000_000_000 + timestamp_nanos
         return combined_timestamp, key, iv
-    
+
     def glp(self, jwt_token, encrypted_payload):
-        """ReleaseVersion shudhu global obve theke. Hardcoded fallback nai."""
         rel = obve
         if not rel:
             version_ready.wait(timeout=60)
@@ -459,7 +455,7 @@ class FC:
         if not rel:
             print("[!] OB version not ready, skipping glp")
             return None, None, None, None
-        
+
         url = f'https://clientbp.ggpolarbear.com/GetLoginData'
         headers = {
             'Expect': '100-continue',
@@ -486,7 +482,7 @@ class FC:
             return ip, port, ip2, port2
         except Exception as e:
             return None, None, None, None
-    
+
     def gt(self, uid, password):
         try:
             if not uid or not password:
@@ -504,6 +500,17 @@ class FC:
             decoded_data = json.loads(decoded)
             bot_uid = decoded_data['1']['data']
             jwt_token = decoded_data['8']['data']
+
+            # ✅ JWT expiry check
+            try:
+                decoded_jwt = jwt.decode(jwt_token, options={"verify_signature": False})
+                exp = decoded_jwt.get('exp')
+                if exp and exp < time.time() + 30:
+                    # Token expired or about to expire in 30s
+                    return None
+            except Exception:
+                pass
+
             combined_timestamp, key, iv = self.gki(bytes.fromhex(response))
             ip, port, ip2, port2 = self.glp(jwt_token, encrypted_payload)
             if not ip or not ip2:
@@ -511,7 +518,7 @@ class FC:
             return jwt_token, key, iv, combined_timestamp, ip, port, ip2, port2, bot_uid
         except Exception as e:
             return None
-    
+
     def gft(self, uid, password):
         result = self.gt(uid, password)
         if result is None:
@@ -543,17 +550,17 @@ class FC:
             }
         except Exception as e:
             return None
-    
+
     def cleanup(self):
         pass
-    
+
     def start(self):
         global ab, rf, lrt, online_count, active_accounts
-        
+
         with bs:
             with lock:
                 ab += 1
-            
+
             while not rf:
                 try:
                     self.saved_data = self.gft(self.uid, self.password)
@@ -562,7 +569,7 @@ class FC:
                             console.print(f"[red]{self.uid} [{self.region}] AuTh fAiLeD - Retrying...[/red]")
                         time.sleep(3)
                         continue
-                    
+
                     auth = self.saved_data['auth']
                     ip = self.saved_data['ip']
                     port = self.saved_data['port']
@@ -571,7 +578,7 @@ class FC:
                     key = self.saved_data['key']
                     iv = self.saved_data['iv']
                     self.bot_uid = self.saved_data['bot_uid']
-                    
+
                     with lock:
                         console.print(f"[green]SuCc Bot: {self.bot_uid} [{self.region}][/green]")
                         self.login_success = True
@@ -583,77 +590,59 @@ class FC:
                                 'region': self.region,
                                 'time': datetime.now().strftime('%H:%M:%S')
                             })
-                    
+
                     self.target_found = False
-                    
+
                     while self.running and not self.target_found and not rf:
+                        sock2 = None
                         try:
                             sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            sock2.settimeout(0.3)
+                            sock2.settimeout(5.0)
                             sock2.connect((ip2, int(port2)))
                             sock2.send(bytes.fromhex(auth))
-                            time.sleep(0.01)
-                            
+                            time.sleep(0.05)
+
                             join_packet = Join_Sq(key, iv)
                             sock2.send(join_packet)
-                            time.sleep(0.01)
-                            
-                            try:
-                                map_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                                map_sock.settimeout(3.0)
-                                map_sock.connect((ip, int(port)))
-                                map_sock.send(bytes.fromhex(auth))
-                                time.sleep(0.02)
-                                
-                                map_sock.send(GLobaL(0, key, iv))
-                                time.sleep(0.02)
+                            time.sleep(0.05)
 
-                                Map_list = [
-                                    "#FREEFIRE5047CD63A7E2810EF344C6F0A880B17AK200",
-                                    "#FREEFIREA79043F8AFF0F0D39468FA40C40E21A4K200",
-                                    "#FREEFIREF63E5AB9D1C9BECFEF06BBF1AD75D3E1K200"
-                                ]
-                                selected_map = random.choice(Map_list)
+                            # ---- Craftland share REMOVED ----
 
-                                send_craftland_share_sync(map_sock, self.bot_uid, 0, 1, selected_map, key, iv)
-                                time.sleep(0.02)
-                                map_sock.close()
-                            except Exception:
-                                pass
-                            
                             start_time = time.time()
                             got_target = False
-                            
+
                             while self.running and not self.target_found and not rf:
+                                if time.time() - start_time > 30:
+                                    break
                                 try:
                                     data = sock2.recv(8192)
                                     if not data:
                                         break
-                                    
+
                                     hex_data = data.hex()
                                     if len(hex_data) > 0 and hex_data.startswith('0500') and len(hex_data) > 100:
                                         try:
                                             json_str = DeCode_PackEt(hex_data[10:])
                                             if json_str:
                                                 packet = json.loads(json_str)
-                                                
+
                                                 try:
                                                     squad_data = packet.get('5', {}).get('data', {})
                                                     player_data = squad_data.get('6', {}).get('data', {})
-                                                    
+
                                                     target_uid = squad_data.get('1', {}).get('data') or player_data.get('1', {}).get('data')
                                                     target_name = player_data.get('2', {}).get('data') or 'MAHIR'
                                                     target_region = player_data.get('3', {}).get('data') or self.region
-                                                    
+
                                                     squad_code = squad_data.get('31', {}).get('data')
                                                     code = squad_data.get('17', {}).get('data')
                                                 except:
                                                     target_uid, target_name, target_region, squad_code, code = None, "MAHIR", self.region, None, None
-                                                
+
                                                 if target_uid and squad_code and code:
                                                     self.target_found = True
                                                     got_target = True
-                                                    
+
                                                     with lock:
                                                         console.print(f"[bold green]=====================================[/bold green]")
                                                         console.print(f"[bold yellow]🤖 BOT UID  :[/bold yellow] {self.bot_uid}")
@@ -661,90 +650,111 @@ class FC:
                                                         console.print(f"[bold white]🆔 UID      :[/bold white] {target_uid}")
                                                         console.print(f"[bold magenta]🌐 SERVER   :[/bold magenta] {target_region}")
                                                         console.print(f"[bold green]=====================================[/bold green]")
-                                                    
-                                                    # ============ STEP 1: FIRST SEND MESSAGE ============
+
+                                                    # ============ STEP 1: MESSAGE ============
+                                                    sock = None
                                                     try:
                                                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                                                         sock.settimeout(5.0)
                                                         sock.connect((ip, int(port)))
                                                         sock.send(bytes.fromhex(auth))
                                                         time.sleep(0.05)
-                                                        
+
                                                         sock.send(yasser_Chat(target_uid, code, key, iv))
                                                         time.sleep(0.05)
-                                                        
+
                                                         display_name = "USER"
-                                                        sock.send(yasser_Msg(f"[B][C][00FFFF]╔━━━──[FF0000] • [00FFFF]──━━━╗\n[FFFFFF]        ⚡ WELCOME  ⚡\n\n[FF0000]       {display_name}\n\n[00FF00]  WELCOME TO MAHIR BOT\n\n[00FFFF]╚━━━──[FF0000] • [00FFFF]──━━━╝\n\n[FFFF00]★ Power OF MAHIR ★\n\n[FFFFFF]🎯 STATUS   : [00FF00]ONLINE 24/7\n[FFFFFF]🤖 SPEED    : [00FF00]ULTRA FAST\n[FFFFFF]🔒 SECURITY : [00FF00]PROTECTED\n\n[FF0000]👑 OWNER    : [00FFFF]MAHIR\n[FFFFFF]📱 TIKTOK   : [FFFF00]MAHIR__222\n[FFFFFF]📢 TELEGRAM : [00FFFF]THEMAHIRWORLD\n\n[FFFFFF]━━━━━━━━━━━━━ ", target_uid, self.bot_uid, key, iv))
+                                                        sock.send(yasser_Msg(
+                                                            f"[B][C][00FFFF]╔━━━──[FF0000] • [00FFFF]──━━━╗\n"
+                                                            f"[FFFFFF]        ⚡ WELCOME  ⚡\n\n"
+                                                            f"[FF0000]       {display_name}\n\n"
+                                                            f"[00FF00]  WELCOME TO MAHIR BOT\n\n"
+                                                            f"[00FFFF]╚━━━──[FF0000] • [00FFFF]──━━━╝\n\n"
+                                                            f"[FFFF00]★ Power OF MAHIR ★\n\n"
+                                                            f"[FFFFFF]🎯 STATUS   : [00FF00]ONLINE 24/7\n"
+                                                            f"[FFFFFF]🤖 SPEED    : [00FF00]ULTRA FAST\n"
+                                                            f"[FFFFFF]🔒 SECURITY : [00FF00]PROTECTED\n\n"
+                                                            f"[FF0000]👑 OWNER    : [00FFFF]MAHIR\n"
+                                                            f"[FFFFFF]📱 TIKTOK   : [FFFF00]MAHIR__222\n"
+                                                            f"[FFFFFF]📢 TELEGRAM : [00FFFF]THEMAHIRWORLD\n\n"
+                                                            f"[FFFFFF]━━━━━━━━━━━━━ ",
+                                                            target_uid, self.bot_uid, key, iv
+                                                        ))
                                                         time.sleep(0.05)
-                                                        
+
                                                         sock.send(yasser_quitcaht(target_uid, key, iv))
                                                         time.sleep(0.05)
 
-                                                        sock.close()
-                                                        
                                                         with lock:
                                                             console.print(f" [{self.bot_uid}] |  [{self.region}] | Msg SuCc")
                                                             self.message_sent = True
                                                     except Exception as e:
                                                         with lock:
                                                             console.print(f"[{self.bot_uid}] Msg ErRoR")
-                                                    
-                                                    # ============ STEP 2: THEN EXIT ============
-                                                    time.sleep(10)
-                                                    sock2.send(ExiT(key, iv))
-                                                    time.sleep(0.01)
-                                                    
-                                                    # ============ STEP 3: THEN SEND GHOST ============
+                                                    finally:
+                                                        if sock:
+                                                            try:
+                                                                sock.close()
+                                                            except:
+                                                                pass
+
+                                                    # ============ STEP 2: EXIT ============
+                                                    time.sleep(1)
+                                                    sock2.send(ExiT(self.bot_uid, key, iv))
+                                                    time.sleep(0.05)
+
+                                                    # ============ STEP 3: GHOST ============
                                                     name = "[C][B][FF0000]TIKTOK : [C][B][FFFFFF]MAHIR__222"
                                                     ghost_data = Send_GhosTs(target_uid, name, squad_code, key, iv)
                                                     sock2.send(ghost_data)
                                                     time.sleep(0.05)
-                                                    
+
                                                     with lock:
                                                         console.print(f"[{self.bot_uid}] |  [{self.region}] | Ghost SuCc ")
                                                         self.ghost_sent = True
-                                                    
-                                                    sock2.close()
                                                     break
                                         except Exception:
                                             pass
                                 except socket.timeout:
-                                    break
+                                    if time.time() - start_time > 30:
+                                        break
+                                    continue
                                 except ConnectionResetError:
                                     break
-                                except Exception as e:
+                                except Exception:
                                     break
-                            
-                            try:
-                                sock2.close()
-                            except:
-                                pass
-                            
+
                             if got_target:
                                 with lock:
                                     console.print(f" [{self.bot_uid}]  | [{self.region}]  | DoNe Gg - Reconnecting...")
                                 self.target_found = False
-                                for _ in range(30):
+                                for _ in range(10):
                                     if rf: break
                                     time.sleep(0.1)
                                 continue
-                                
-                        except Exception as e:
+
+                        except Exception:
                             pass
-                        
+                        finally:
+                            if sock2:
+                                try:
+                                    sock2.close()
+                                except:
+                                    pass
+
                         for _ in range(10):
                             if rf: break
                             time.sleep(0.1)
-                    
+
                     if rf:
                         break
-                        
+
                 except Exception as e:
                     with lock:
                         console.print(f"[red]{self.uid} Error: {e} - Retrying in 3s[/red]")
                     time.sleep(3)
                     continue
-            
+
             with lock:
                 try:
                     ab -= 1
@@ -772,6 +782,7 @@ def laf(file_path):
         pass
     return accounts
 
+
 def laa():
     all_accounts = []
     for region, file_path in RAF.items():
@@ -781,11 +792,12 @@ def laa():
     random.shuffle(all_accounts)
     return all_accounts
 
+
 def rb(uid, password, region):
     try:
         client = FC(uid, password, region)
         client.start()
-    except Exception as e:
+    except Exception:
         pass
 
 
@@ -796,15 +808,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
-            
+
             global online_count, active_accounts, total_accounts
-            
+
             try:
                 with open('BD.txt', 'r', encoding='utf-8') as f:
                     bd_content = f.read()
             except:
                 bd_content = ""
-            
+
             accounts_html = ""
             for acc in active_accounts[-100:]:
                 accounts_html += f"""
@@ -816,10 +828,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     <td style="color: #00ff00;">● ONLINE</td>
                 </tr>
                 """
-            
+
             cur_ver = _current_version or "loading..."
             cur_rel = obve or "loading..."
-            
+
             html = f"""
             <!DOCTYPE html>
             <html lang="bn">
@@ -981,7 +993,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         <h1>🔥 MAHIR BOT DASHBOARD 🔥</h1>
                         <p>⚡ REAL-TIME MONITORING SYSTEM ⚡</p>
                     </div>
-                    
+
                     <div class="stats">
                         <div class="stat-card">
                             <h2>{online_count}</h2>
@@ -1000,7 +1012,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             <p>📦 VERSION ({cur_rel})</p>
                         </div>
                     </div>
-                    
+
                     <div class="section">
                         <h2>📋 Active Accounts (Last 100)</h2>
                         <table>
@@ -1019,7 +1031,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         </table>
                         <div class="refresh-note">🔄 Auto-refresh every 10 seconds</div>
                     </div>
-                    
+
                     <div class="section">
                         <h2>📝 Edit BD.txt</h2>
                         <form method="POST" action="/update">
@@ -1028,7 +1040,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             <button type="submit" class="btn btn-green">💾 SAVE & START ACCOUNTS</button>
                         </form>
                     </div>
-                    
+
                     <div class="footer">
                         <p>© 2024 MAHIR BOT | Premium Auto System</p>
                         <p>Owner: MAHIR | Contact: @MAHIR0208</p>
@@ -1038,7 +1050,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             </html>
             """
             self.wfile.write(html.encode('utf-8'))
-        
+
         elif self.path == '/api/stats':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -1056,21 +1068,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b'Not Found')
-    
+
     def do_POST(self):
         if self.path == '/update':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
             params = parse_qs(post_data)
-            
+
             if 'bd_content' in params:
                 new_content = params['bd_content'][0]
                 try:
                     with open('BD.txt', 'w', encoding='utf-8') as f:
                         f.write(new_content)
-                    
+
                     threading.Thread(target=restart_all_accounts, daemon=True).start()
-                    
+
                     self.send_response(302)
                     self.send_header('Location', '/')
                     self.end_headers()
@@ -1086,38 +1098,37 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b'Not Found')
-    
+
     def log_message(self, format, *args):
         pass
 
 
 def restart_all_accounts():
-    """নতুন অ্যাকাউন্ট লোড করে সব থ্রেড রিস্টার্ট করে"""
     global rf, online_count, active_accounts, total_accounts, ab
-    
+
     with restart_lock:
         console.print("\n[bold yellow]🔄 Restarting all accounts...[/bold yellow]")
-        
+
         rf = True
         time.sleep(4)
-        
+
         with lock:
             online_count = 0
             active_accounts = []
             ab = 0
-        
+
         all_accounts = laa()
         total_accounts = len(all_accounts)
-        
+
         rf = False
         time.sleep(1)
-        
+
         if not all_accounts:
             console.print("[bold red]⚠️ No accounts found! Waiting for new upload...[/bold red]")
             return
-        
+
         console.print(f"[bold cyan]📥 Loaded {total_accounts} accounts[/bold cyan]")
-        
+
         for uid, password, region in all_accounts:
             thread = threading.Thread(target=rb, args=(uid, password, region), daemon=True)
             thread.start()
@@ -1126,17 +1137,15 @@ def restart_all_accounts():
 
 def ss():
     global rf, lrt, total_accounts, html_server_running, ab, online_count, active_accounts
-    
+
     try:
         print(render('GLoBaL', colors=['white', 'magenta'], align='center'))
         print(render('MAHIR BOT', colors=['white', 'red'], align='center'))
     except:
         pass
-    
-    # Version info display
+
     console.print(f"[bold green]📦 Version: {_current_version} ({obve})[/bold green]")
-    
-    # HTML সার্ভার আগে চালু (accounts না থাকলেও)
+
     if not html_server_running:
         try:
             server = HTTPServer(('0.0.0.0', 8080), DashboardHandler)
@@ -1146,15 +1155,14 @@ def ss():
             console.print(f"[bold green]✅ Dashboard:[/bold green] [bold cyan]http://localhost:8080[/bold cyan]")
         except Exception as e:
             console.print(f"[bold red]❌ Dashboard failed: {e}[/bold red]")
-    
-    # ===== MAIN LOOP - কখনো বন্ধ হবে না =====
+
     first_run = True
-    
+
     while True:
         try:
             all_accounts = laa()
             total_accounts = len(all_accounts)
-            
+
             if not all_accounts:
                 if first_run:
                     console.print("\n[bold red]⚠️ No Acc FouND![/bold red]")
@@ -1162,25 +1170,25 @@ def ss():
                     first_run = False
                 else:
                     console.print("[yellow]⏳ Waiting for accounts in BD.txt...[/yellow]")
-                
+
                 time.sleep(10)
                 continue
-            
+
             first_run = False
             console.print(f"\n[bold cyan]✅ ALL Acc : {total_accounts}[/bold cyan]\n")
-            
+
             for uid, password, region in all_accounts:
                 thread = threading.Thread(target=rb, args=(uid, password, region), daemon=True)
                 thread.start()
                 time.sleep(0.05)
-            
+
             while True:
                 time.sleep(10)
-                
+
                 if ab == 0 and not rf:
                     console.print("[yellow]🔄 All threads stopped. Reloading accounts...[/yellow]")
                     break
-        
+
         except Exception as e:
             console.print(f"[red]SS Error: {e}[/red]")
             time.sleep(5)
@@ -1188,7 +1196,6 @@ def ss():
 
 
 def restart_program():
-    """১০ মিনিট পর পর auto restart"""
     global ReS
     while True:
         time.sleep(ReS)
@@ -1202,14 +1209,12 @@ def restart_program():
 # ============ MAIN ============
 if __name__ == "__main__":
     try:
-        # Version refresher thread
         version_thread = threading.Thread(target=version_refresher, daemon=True)
         version_thread.start()
-        
-        # Auto restart thread
+
         restart_thread = threading.Thread(target=restart_program, daemon=True)
         restart_thread.start()
-        
+
         ss()
     except KeyboardInterrupt:
         console.print("\n [bold red]Program Stopped by User![/bold red] \n")
