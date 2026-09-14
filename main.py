@@ -34,15 +34,349 @@ lrt = time.time()
 
 ReS = 600
 
+# ============================================================
+#  GROUP REQUEST BLOCK SYSTEM
+# ============================================================
+# blocked_groups = { group_code: unblock_timestamp }
+blocked_groups = {}
+block_lock = threading.Lock()
+
+# Group request tracking
+group_request_queue = queue.Queue()
+GROUP_BLOCK_SECONDS = 60          # 1 minute block
+ACCOUNTS_PER_GROUP = 3            # 3 accounts per group
+WELCOME_WAIT = 2                  # 2 seconds wait before exit
+
+
+def is_group_blocked(group_code):
+    """Check if group is currently blocked."""
+    with block_lock:
+        if group_code in blocked_groups:
+            if time.time() < blocked_groups[group_code]:
+                return True
+            else:
+                del blocked_groups[group_code]
+        return False
+
+
+def block_group(group_code):
+    """Block a group for 60 seconds."""
+    with block_lock:
+        blocked_groups[group_code] = time.time() + GROUP_BLOCK_SECONDS
+    console.print(f"[bold yellow]🔒 Group {group_code} blocked for {GROUP_BLOCK_SECONDS}s[/bold yellow]")
+
+
+def cleanup_blocked_groups():
+    """Background cleaner for expired blocks."""
+    while True:
+        time.sleep(10)
+        now = time.time()
+        with block_lock:
+            expired = [g for g, t in blocked_groups.items() if t <= now]
+            for g in expired:
+                del blocked_groups[g]
+
+
+# ============================================================
+#  GROUP WORKER — Handles a single group request with 3 accounts
+# ============================================================
+class GroupWorker:
+    """Handles joining a group with 3 accounts, welcome msg, exit, ghost."""
+
+    def __init__(self, group_code, target_uid, target_name, target_region,
+                 squad_code, accounts_pool, source_client):
+        """
+        accounts_pool: list of (uid, password, region) tuples
+        source_client: the FC instance that detected the group request
+        """
+        self.group_code = group_code
+        self.target_uid = target_uid
+        self.target_name = target_name
+        self.target_region = target_region
+        self.squad_code = squad_code
+        self.accounts_pool = accounts_pool
+        self.source_client = source_client
+        self.selected_accounts = []
+        self.running = True
+        self.join_success = False
+
+    def select_3_accounts(self):
+        """Randomly select 3 accounts from pool."""
+        if len(self.accounts_pool) < ACCOUNTS_PER_GROUP:
+            return random.sample(self.accounts_pool, len(self.accounts_pool))
+        return random.sample(self.accounts_pool, ACCOUNTS_PER_GROUP)
+
+    def login_account(self, uid, password):
+        """Login and get auth data for an account."""
+        try:
+            temp_client = FC(uid, password, self.target_region)
+            saved = temp_client.gft(uid, password)
+            if not saved:
+                return None
+            return {
+                'uid': uid,
+                'password': password,
+                'auth': saved['auth'],
+                'ip': saved['ip'],
+                'port': saved['port'],
+                'ip2': saved['ip2'],
+                'port2': saved['port2'],
+                'key': saved['key'],
+                'iv': saved['iv'],
+                'bot_uid': saved['bot_uid'],
+                'target_uid': self.target_uid,
+            }
+        except Exception as e:
+            console.print(f"[red]Login failed for {uid}: {e}[/red]")
+            return None
+
+    def join_group_and_welcome(self, acc):
+        """Join the group, send welcome message, exit, then ghost."""
+        sock = None
+        try:
+            console.print(f"[cyan]➡️  Account {acc['uid']} joining group {self.group_code}...[/cyan]")
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(8.0)
+            sock.connect((acc['ip'], int(acc['port'])))
+            sock.send(bytes.fromhex(acc['auth']))
+            time.sleep(0.1)
+
+            # ---- Join squad using group code ----
+            join_packet = ChaT_sQ(
+                self.target_uid,
+                self.group_code,
+                acc['bot_uid'],
+                self.squad_code,
+                acc['key'],
+                acc['iv']
+            )
+            sock.send(join_packet)
+            time.sleep(0.15)
+
+            # ---- Send Welcome Message ----
+            welcome_msg = (
+                f"[B][C][00FFFF]╔━━━──[FF0000] • [00FFFF]──━━━╗\n"
+                f"[FFFFFF]     ⚡ WELCOME TO GROUP ⚡\n\n"
+                f"[FFFF00]👤 Player: [00FF00]{self.target_name}\n"
+                f"[FFFF00]🆔 UID   : [00FF00]{self.target_uid}\n"
+                f"[FFFF00]🌐 Region: [00FF00]{self.target_region}\n\n"
+                f"[00FF00]  ★ MAHIR BOT ONLINE ★\n\n"
+                f"[00FFFF]╚━━━──[FF0000] • [00FFFF]──━━━╝\n\n"
+                f"[FFFFFF]🎯 STATUS   : [00FF00]ONLINE 24/7\n"
+                f"[FFFFFF]🤖 SPEED    : [00FF00]ULTRA FAST\n"
+                f"[FFFFFF]🔒 SECURITY : [00FF00]PROTECTED\n\n"
+                f"[FF0000]👑 OWNER    : [00FFFF]MAHIR\n"
+                f"[FFFFFF]📱 TIKTOK   : [FFFF00]MAHIR__222\n"
+                f"[FFFFFF]📢 TELEGRAM : [00FFFF]THEMAHIRWORLD\n"
+            )
+
+            msg_packet = yasser_Msg(
+                welcome_msg,
+                self.target_uid,
+                acc['bot_uid'],
+                acc['key'],
+                acc['iv']
+            )
+            sock.send(msg_packet)
+            time.sleep(0.15)
+
+            console.print(f"[green]✅ {acc['uid']} → Welcome sent to group {self.group_code}[/green]")
+            self.join_success = True
+
+            # ---- Wait 2 seconds ----
+            console.print(f"[yellow]⏳ Waiting {WELCOME_WAIT}s before exit...[/yellow]")
+            time.sleep(WELCOME_WAIT)
+
+            # ---- Exit group ----
+            exit_packet = yasser_quitcaht(self.target_uid, acc['key'], acc['iv'])
+            sock.send(exit_packet)
+            time.sleep(0.15)
+
+            console.print(f"[magenta]🚪 {acc['uid']} exited group {self.group_code}[/magenta]")
+
+            # ---- Send Ghost ----
+            ghost_name = "[C][B][FF0000]MAHIR BOT [C][B][FFFFFF]WAS HERE"
+            ghost_data = Send_GhosTs(
+                self.target_uid,
+                ghost_name,
+                self.squad_code,
+                acc['key'],
+                acc['iv']
+            )
+            sock.send(ghost_data)
+            time.sleep(0.15)
+
+            console.print(f"[bold red]👻 Ghost sent to {self.target_uid} in group {self.group_code}[/bold red]")
+
+            return True
+
+        except Exception as e:
+            console.print(f"[red]❌ Join error for {acc.get('uid')}: {e}[/red]")
+            return False
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except:
+                    pass
+
+    def run(self):
+        """Main worker: select accounts, process each."""
+        try:
+            # Check block
+            if is_group_blocked(self.group_code):
+                console.print(f"[yellow]⏸️  Group {self.group_code} is blocked, skipping[/yellow]")
+                return
+
+            # Select 3 random accounts
+            self.selected_accounts = self.select_3_accounts()
+            if not self.selected_accounts:
+                console.print("[red]❌ No accounts available in pool[/red]")
+                return
+
+            console.print(
+                f"\n[bold cyan]🎯 GROUP REQUEST: {self.group_code}[/bold cyan]\n"
+                f"[bold white]   Target: {self.target_name} ({self.target_uid}) | Region: {self.target_region}[/bold white]\n"
+                f"[bold white]   Selected {len(self.selected_accounts)} accounts[/bold white]\n"
+            )
+
+            # Login all 3 accounts first (parallel for speed)
+            logged_accounts = []
+            login_threads = []
+            login_results = {}
+            login_lock = threading.Lock()
+
+            def login_worker(uid, password, idx):
+                res = self.login_account(uid, password)
+                with login_lock:
+                    login_results[idx] = res
+
+            for idx, (uid, password, region) in enumerate(self.selected_accounts):
+                t = threading.Thread(target=login_worker, args=(uid, password, idx), daemon=True)
+                t.start()
+                login_threads.append(t)
+
+            for t in login_threads:
+                t.join(timeout=20)
+
+            for idx in sorted(login_results.keys()):
+                if login_results[idx]:
+                    logged_accounts.append(login_results[idx])
+
+            if not logged_accounts:
+                console.print("[red]❌ No accounts could login[/red]")
+                return
+
+            console.print(f"[green]✅ {len(logged_accounts)} accounts logged in[/green]")
+
+            # Join each account (parallel, small stagger)
+            join_threads = []
+            for i, acc in enumerate(logged_accounts):
+                t = threading.Thread(target=self.join_group_and_welcome, args=(acc,), daemon=True)
+                t.start()
+                join_threads.append(t)
+                time.sleep(0.3)  # stagger to avoid rate limit
+
+            for t in join_threads:
+                t.join(timeout=30)
+
+            # Block this group for 60 seconds
+            block_group(self.group_code)
+
+            console.print(
+                f"[bold green]✅ Group {self.group_code} processed. "
+                f"Blocked for {GROUP_BLOCK_SECONDS}s[/bold green]\n"
+            )
+
+        except Exception as e:
+            console.print(f"[red]GroupWorker error: {e}[/red]")
+
+    def stop(self):
+        self.running = False
+
+
+# ============================================================
+#  GROUP REQUEST DISPATCHER
+# ============================================================
+class GroupDispatcher:
+    """Monitors queue and spawns GroupWorkers."""
+
+    def __init__(self, accounts_provider):
+        """
+        accounts_provider: callable that returns list of (uid, password, region)
+        """
+        self.accounts_provider = accounts_provider
+        self.running = True
+        self.active_workers = []
+
+    def start(self):
+        while self.running:
+            try:
+                # Non-blocking get with timeout
+                try:
+                    req = group_request_queue.get(timeout=1)
+                except queue.Empty:
+                    # Cleanup finished workers
+                    self.active_workers = [w for w in self.active_workers if w.running]
+                    continue
+
+                group_code = req.get('group_code')
+                if not group_code:
+                    continue
+
+                # Check if blocked
+                if is_group_blocked(group_code):
+                    console.print(f"[yellow]⏸️  Group {group_code} already blocked, discarding request[/yellow]")
+                    continue
+
+                # Get fresh account pool
+                pool = self.accounts_provider()
+                if not pool:
+                    console.print("[red]❌ No accounts available for group request[/red]")
+                    continue
+
+                # Spawn worker
+                worker = GroupWorker(
+                    group_code=group_code,
+                    target_uid=req.get('target_uid'),
+                    target_name=req.get('target_name', 'Unknown'),
+                    target_region=req.get('target_region', 'BD'),
+                    squad_code=req.get('squad_code'),
+                    accounts_pool=pool,
+                    source_client=req.get('source_client')
+                )
+                t = threading.Thread(target=worker.run, daemon=True)
+                t.start()
+                self.active_workers.append(worker)
+
+                console.print(
+                    f"[bold green]🚀 Dispatched GroupWorker for {group_code} "
+                    f"with {ACCOUNTS_PER_GROUP} accounts[/bold green]"
+                )
+
+            except Exception as e:
+                console.print(f"[red]Dispatcher error: {e}[/red]")
+                time.sleep(1)
+
+    def stop(self):
+        self.running = False
+
+
+# Global accounts list (updated by main)
+CURRENT_ACCOUNTS = []
+
+
+def accounts_provider():
+    """Returns a copy of current accounts."""
+    global CURRENT_ACCOUNTS
+    return list(CURRENT_ACCOUNTS)
+
 
 # ============================================================
 #  AUTO UPDATE SYSTEM (NO HARDCODED FALLBACK)
 # ============================================================
 def AuToUpDaTE():
-    """
-    Play Store theke latest version niye, ggwhitehawk API theke OB ber kore.
-    Returns: (server_url, ob_version, client_version)
-    """
     try:
         data = play_store_app('com.dts.freefireth', lang="en", country='US')
         store_version = data.get("version")
@@ -66,9 +400,6 @@ def AuToUpDaTE():
         return None, None, None
 
 
-# ============================================================
-#  GLOBAL VERSION STATE
-# ============================================================
 obve = None
 _current_version = None
 version_ready = threading.Event()
@@ -106,9 +437,6 @@ def version_refresher():
             pass
 
 
-# ============================================================
-#  INITIAL VERSION FETCH
-# ============================================================
 fetch_until_success()
 
 rf = False
@@ -433,6 +761,7 @@ class FC:
         self.login_success = False
         self.ghost_sent = False
         self.message_sent = False
+        self.group_request_sent = False
 
     def gki(self, serialized_data):
         my_message = keys.MyMessage()
@@ -501,12 +830,10 @@ class FC:
             bot_uid = decoded_data['1']['data']
             jwt_token = decoded_data['8']['data']
 
-            # ✅ JWT expiry check
             try:
                 decoded_jwt = jwt.decode(jwt_token, options={"verify_signature": False})
                 exp = decoded_jwt.get('exp')
                 if exp and exp < time.time() + 30:
-                    # Token expired or about to expire in 30s
                     return None
             except Exception:
                 pass
@@ -555,6 +882,7 @@ class FC:
         pass
 
     def start(self):
+        """Main loop: detects group requests and pushes them to dispatcher."""
         global ab, rf, lrt, online_count, active_accounts
 
         with bs:
@@ -606,8 +934,6 @@ class FC:
                             sock2.send(join_packet)
                             time.sleep(0.05)
 
-                            # ---- Craftland share REMOVED ----
-
                             start_time = time.time()
                             got_target = False
 
@@ -651,67 +977,27 @@ class FC:
                                                         console.print(f"[bold magenta]🌐 SERVER   :[/bold magenta] {target_region}")
                                                         console.print(f"[bold green]=====================================[/bold green]")
 
-                                                    # ============ STEP 1: MESSAGE ============
-                                                    sock = None
-                                                    try:
-                                                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                                                        sock.settimeout(5.0)
-                                                        sock.connect((ip, int(port)))
-                                                        sock.send(bytes.fromhex(auth))
-                                                        time.sleep(0.05)
-
-                                                        sock.send(yasser_Chat(target_uid, code, key, iv))
-                                                        time.sleep(0.05)
-
-                                                        display_name = "USER"
-                                                        sock.send(yasser_Msg(
-                                                            f"[B][C][00FFFF]╔━━━──[FF0000] • [00FFFF]──━━━╗\n"
-                                                            f"[FFFFFF]        ⚡ WELCOME  ⚡\n\n"
-                                                            f"[FF0000]       {display_name}\n\n"
-                                                            f"[00FF00]  WELCOME TO MAHIR BOT\n\n"
-                                                            f"[00FFFF]╚━━━──[FF0000] • [00FFFF]──━━━╝\n\n"
-                                                            f"[FFFF00]★ Power OF MAHIR ★\n\n"
-                                                            f"[FFFFFF]🎯 STATUS   : [00FF00]ONLINE 24/7\n"
-                                                            f"[FFFFFF]🤖 SPEED    : [00FF00]ULTRA FAST\n"
-                                                            f"[FFFFFF]🔒 SECURITY : [00FF00]PROTECTED\n\n"
-                                                            f"[FF0000]👑 OWNER    : [00FFFF]MAHIR\n"
-                                                            f"[FFFFFF]📱 TIKTOK   : [FFFF00]MAHIR__222\n"
-                                                            f"[FFFFFF]📢 TELEGRAM : [00FFFF]THEMAHIRWORLD\n\n"
-                                                            f"[FFFFFF]━━━━━━━━━━━━━ ",
-                                                            target_uid, self.bot_uid, key, iv
-                                                        ))
-                                                        time.sleep(0.05)
-
-                                                        sock.send(yasser_quitcaht(target_uid, key, iv))
-                                                        time.sleep(0.05)
-
+                                                    # ============ PUSH GROUP REQUEST ============
+                                                    group_code = str(code)
+                                                    if not is_group_blocked(group_code):
+                                                        group_request_queue.put({
+                                                            'group_code': group_code,
+                                                            'target_uid': target_uid,
+                                                            'target_name': target_name,
+                                                            'target_region': target_region,
+                                                            'squad_code': squad_code,
+                                                            'source_client': self,
+                                                        })
                                                         with lock:
-                                                            console.print(f" [{self.bot_uid}] |  [{self.region}] | Msg SuCc")
-                                                            self.message_sent = True
-                                                    except Exception as e:
+                                                            console.print(
+                                                                f"[bold green]📨 Group request queued: {group_code} "
+                                                                f"({target_name})[/bold green]"
+                                                            )
+                                                    else:
                                                         with lock:
-                                                            console.print(f"[{self.bot_uid}] Msg ErRoR")
-                                                    finally:
-                                                        if sock:
-                                                            try:
-                                                                sock.close()
-                                                            except:
-                                                                pass
-
-                                                    # ============ STEP 2: EXIT ============
-                                                    time.sleep(1)
-                                                    sock2.send(ExiT(self.bot_uid, key, iv))
-                                                    time.sleep(0.05)
-
-                                                    # ============ STEP 3: GHOST ============
-                                                    name = "[C][B][FF0000]TIKTOK : [C][B][FFFFFF]MAHIR__222"
-                                                    ghost_data = Send_GhosTs(target_uid, name, squad_code, key, iv)
-                                                    sock2.send(ghost_data)
-                                                    time.sleep(0.05)
-
-                                                    with lock:
-                                                        console.print(f"[{self.bot_uid}] |  [{self.region}] | Ghost SuCc ")
-                                                        self.ghost_sent = True
+                                                            console.print(
+                                                                f"[yellow]⏸️  Group {group_code} is blocked, skipping[/yellow]"
+                                                            )
                                                     break
                                         except Exception:
                                             pass
@@ -784,12 +1070,14 @@ def laf(file_path):
 
 
 def laa():
+    global CURRENT_ACCOUNTS
     all_accounts = []
     for region, file_path in RAF.items():
         accounts = laf(file_path)
         for uid, password in accounts:
             all_accounts.append((uid, password, region))
     random.shuffle(all_accounts)
+    CURRENT_ACCOUNTS = list(all_accounts)
     return all_accounts
 
 
@@ -831,6 +1119,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             cur_ver = _current_version or "loading..."
             cur_rel = obve or "loading..."
+
+            # Blocked groups display
+            with block_lock:
+                blocked_list = list(blocked_groups.items())
+            blocked_html = ""
+            for g, t in blocked_list:
+                rem = max(0, int(t - time.time()))
+                blocked_html += f"<span style='background:#ff0000;padding:4px 10px;border-radius:5px;margin:3px;display:inline-block;'>{g} ({rem}s)</span>"
+            if not blocked_html:
+                blocked_html = "<span style='color:#888;'>No blocked groups</span>"
 
             html = f"""
             <!DOCTYPE html>
@@ -1014,6 +1312,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     </div>
 
                     <div class="section">
+                        <h2>🔒 Blocked Groups (1 min cooldown)</h2>
+                        <div>{blocked_html}</div>
+                    </div>
+
+                    <div class="section">
                         <h2>📋 Active Accounts (Last 100)</h2>
                         <table>
                             <thead>
@@ -1055,13 +1358,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
+            with block_lock:
+                blocked = {g: int(t - time.time()) for g, t in blocked_groups.items() if t > time.time()}
             stats = {
                 'online': online_count,
                 'total': total_accounts,
                 'threads': ab,
                 'version': _current_version or "loading...",
                 'release': obve or "loading...",
-                'accounts': active_accounts[-100:]
+                'accounts': active_accounts[-100:],
+                'blocked_groups': blocked
             }
             self.wfile.write(json.dumps(stats).encode('utf-8'))
         else:
@@ -1104,7 +1410,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def restart_all_accounts():
-    global rf, online_count, active_accounts, total_accounts, ab
+    global rf, online_count, active_accounts, total_accounts, ab, CURRENT_ACCOUNTS
 
     with restart_lock:
         console.print("\n[bold yellow]🔄 Restarting all accounts...[/bold yellow]")
@@ -1119,6 +1425,7 @@ def restart_all_accounts():
 
         all_accounts = laa()
         total_accounts = len(all_accounts)
+        CURRENT_ACCOUNTS = list(all_accounts)
 
         rf = False
         time.sleep(1)
@@ -1136,7 +1443,7 @@ def restart_all_accounts():
 
 
 def ss():
-    global rf, lrt, total_accounts, html_server_running, ab, online_count, active_accounts
+    global rf, lrt, total_accounts, html_server_running, ab, online_count, active_accounts, CURRENT_ACCOUNTS
 
     try:
         print(render('GLoBaL', colors=['white', 'magenta'], align='center'))
@@ -1145,6 +1452,14 @@ def ss():
         pass
 
     console.print(f"[bold green]📦 Version: {_current_version} ({obve})[/bold green]")
+
+    # Start block cleaner
+    threading.Thread(target=cleanup_blocked_groups, daemon=True).start()
+
+    # Start group dispatcher
+    dispatcher = GroupDispatcher(accounts_provider=accounts_provider)
+    threading.Thread(target=dispatcher.start, daemon=True).start()
+    console.print("[bold green]✅ Group Dispatcher started[/bold green]")
 
     if not html_server_running:
         try:
@@ -1162,6 +1477,7 @@ def ss():
         try:
             all_accounts = laa()
             total_accounts = len(all_accounts)
+            CURRENT_ACCOUNTS = list(all_accounts)
 
             if not all_accounts:
                 if first_run:
